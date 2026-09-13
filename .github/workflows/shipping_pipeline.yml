@@ -1,25 +1,14 @@
 name: Shipping Pipeline
 
-# ============================================================
-# TRIGGERS
-# ============================================================
-
 on:
   workflow_dispatch:
+
   schedule:
     - cron: "0 6 * * *"
-
-# ============================================================
-# CONCURRENCY
-# ============================================================
 
 concurrency:
   group: shipping-pipeline
   cancel-in-progress: false
-
-# ============================================================
-# JOB
-# ============================================================
 
 jobs:
   shipping-pipeline:
@@ -28,25 +17,86 @@ jobs:
     timeout-minutes: 60
 
     steps:
+
+      # ======================================================
+      # CHECKOUT
+      # ======================================================
+
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # ======================================================
+      # PYTHON
+      # ======================================================
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
 
-      # تثبيت سريع جداً باستخدام uv
-      - name: Install dependencies with uv
+      # ======================================================
+      # SHOW PYTHON INFORMATION
+      # ======================================================
+
+      - name: Check Python
         run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          export PATH="$HOME/.cargo/bin:$PATH"
-          uv pip install --system -r requirements.txt
+          which python
+          python --version
+          python -m pip --version
+
+      # ======================================================
+      # INSTALL DEPENDENCIES
+      # ======================================================
+
+      - name: Install requirements
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      # ======================================================
+      # FORCE INSTALL PSYCOPG2
+      # ======================================================
+
+      - name: Install psycopg2-binary
+        run: |
+          python -m pip uninstall -y psycopg2 psycopg2-binary || true
+          python -m pip install --no-cache-dir --force-reinstall psycopg2-binary
+
+      # ======================================================
+      # VERIFY PSYCOPG2
+      # ======================================================
+
+      - name: Verify psycopg2
+        run: |
+          python -c "import sys; print('Python:', sys.executable)"
+          python -c "import psycopg2; print('psycopg2:', psycopg2.__version__)"
+          python -c "from psycopg2.extras import execute_values; print('execute_values: OK')"
+
+      # ======================================================
+      # VERIFY PROJECT IMPORT
+      # ======================================================
+
+      - name: Verify Shipping imports
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          DB_URL_Shipping: ${{ secrets.DB_URL_Shipping }}
+          DB_URL_Orders: ${{ secrets.DB_URL_Orders }}
+        run: |
+          python -c "from pipeline.Shipping.DBManage import execute_values; print('DBManage import: OK')"
+
+      # ======================================================
+      # CREATE DIRECTORIES
+      # ======================================================
 
       - name: Create pipeline directories
         run: |
           mkdir -p files
           mkdir -p cleaned_files
+
+      # ======================================================
+      # RUN SHIPPING PIPELINE
+      # ======================================================
 
       - name: Run Shipping Pipeline
         env:
@@ -55,6 +105,10 @@ jobs:
           DB_URL_Orders: ${{ secrets.DB_URL_Orders }}
         run: |
           python ShippingPipeline.py
+
+      # ======================================================
+      # UPLOAD FILES
+      # ======================================================
 
       - name: Upload pipeline files
         if: always()
