@@ -11,3 +11,4 @@ xlrd>=2.0,<3
 supabase>=2.5,<3
 
 psycopg2-binary
+rapidfuzz>=3.0,<4
