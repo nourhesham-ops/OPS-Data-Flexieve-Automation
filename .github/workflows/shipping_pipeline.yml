@@ -1,14 +1,30 @@
 name: Shipping Pipeline
 
+# ============================================================
+# TRIGGERS
+# ============================================================
+
 on:
+  # تشغيل يدوي من GitHub
   workflow_dispatch:
 
+  # تشغيل تلقائي يومياً
   schedule:
+    # 06:00 UTC
+    # = 09:00 Cairo عندما يكون UTC+3
     - cron: "0 6 * * *"
+
+# ============================================================
+# CONCURRENCY
+# ============================================================
 
 concurrency:
   group: shipping-pipeline
   cancel-in-progress: false
+
+# ============================================================
+# JOB
+# ============================================================
 
 jobs:
   shipping-pipeline:
@@ -26,7 +42,7 @@ jobs:
         uses: actions/checkout@v4
 
       # ======================================================
-      # PYTHON
+      # SETUP PYTHON
       # ======================================================
 
       - name: Setup Python
@@ -36,7 +52,7 @@ jobs:
           cache: pip
 
       # ======================================================
-      # SHOW PYTHON INFORMATION
+      # CHECK PYTHON
       # ======================================================
 
       - name: Check Python
@@ -49,9 +65,12 @@ jobs:
       # INSTALL DEPENDENCIES
       # ======================================================
 
-      - name: Install requirements
+      - name: Upgrade pip
         run: |
           python -m pip install --upgrade pip
+
+      - name: Install requirements
+        run: |
           python -m pip install -r requirements.txt
 
       # ======================================================
@@ -60,30 +79,36 @@ jobs:
 
       - name: Install psycopg2-binary
         run: |
-          python -m pip uninstall -y psycopg2 psycopg2-binary || true
           python -m pip install --no-cache-dir --force-reinstall psycopg2-binary
 
       # ======================================================
-      # VERIFY PSYCOPG2
+      # VERIFY DEPENDENCIES
       # ======================================================
 
-      - name: Verify psycopg2
+      - name: Verify Python dependencies
         run: |
-          python -c "import sys; print('Python:', sys.executable)"
-          python -c "import psycopg2; print('psycopg2:', psycopg2.__version__)"
-          python -c "from psycopg2.extras import execute_values; print('execute_values: OK')"
+          python - <<'PY'
+          import pandas
+          import dotenv
+          import google.auth
+          import googleapiclient
+          import gspread
+          import openpyxl
+          import xlrd
+          import supabase
+          import psycopg2
+          import rapidfuzz
 
-      # ======================================================
-      # VERIFY PROJECT IMPORT
-      # ======================================================
+          from psycopg2.extras import execute_values
 
-      - name: Verify Shipping imports
-        env:
-          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
-          DB_URL_Shipping: ${{ secrets.DB_URL_Shipping }}
-          DB_URL_Orders: ${{ secrets.DB_URL_Orders }}
-        run: |
-          python -c "from pipeline.Shipping.DBManage import execute_values; print('DBManage import: OK')"
+          print("========================================")
+          print("All required dependencies are installed")
+          print("========================================")
+          print("pandas:", pandas.__version__)
+          print("psycopg2:", psycopg2.__version__)
+          print("rapidfuzz:", rapidfuzz.__version__)
+          print("execute_values: OK")
+          PY
 
       # ======================================================
       # CREATE DIRECTORIES
@@ -93,6 +118,84 @@ jobs:
         run: |
           mkdir -p files
           mkdir -p cleaned_files
+
+      # ======================================================
+      # CREATE GOOGLE CREDENTIALS
+      # ======================================================
+
+      - name: Create Google credentials
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+        run: |
+          if [ -z "$GOOGLE_CREDENTIALS_JSON" ]; then
+            echo "ERROR: GOOGLE_CREDENTIALS_JSON secret is empty or not configured."
+            exit 1
+          fi
+
+          printf '%s' "$GOOGLE_CREDENTIALS_JSON" > credentials.json
+
+          if [ ! -s credentials.json ]; then
+            echo "ERROR: credentials.json was not created."
+            exit 1
+          fi
+
+          echo "credentials.json created successfully."
+
+      # ======================================================
+      # VERIFY GOOGLE CREDENTIALS
+      # ======================================================
+
+      - name: Verify Google credentials
+        run: |
+          python - <<'PY'
+          import json
+
+          with open("credentials.json", "r", encoding="utf-8") as f:
+              data = json.load(f)
+
+          required = [
+              "type",
+              "project_id",
+              "private_key",
+              "client_email"
+          ]
+
+          missing = [
+              key for key in required
+              if not data.get(key)
+          ]
+
+          if missing:
+              raise ValueError(
+                  f"credentials.json is missing required fields: {missing}"
+              )
+
+          print("========================================")
+          print("Google credentials JSON is valid")
+          print("========================================")
+          print("Credential type:", data.get("type"))
+          print("Project ID:", data.get("project_id"))
+          print("Client email:", data.get("client_email"))
+          PY
+
+      # ======================================================
+      # VERIFY PROJECT IMPORTS
+      # ======================================================
+
+      - name: Verify Shipping imports
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          DB_URL_Shipping: ${{ secrets.DB_URL_Shipping }}
+          DB_URL_Orders: ${{ secrets.DB_URL_Orders }}
+        run: |
+          python - <<'PY'
+          from pipeline.Shipping.DBManage import execute_values
+          from pipeline.Shipping.CLShipping import *
+          
+          print("========================================")
+          print("Shipping project imports: OK")
+          print("========================================")
+          PY
 
       # ======================================================
       # RUN SHIPPING PIPELINE
@@ -107,7 +210,7 @@ jobs:
           python ShippingPipeline.py
 
       # ======================================================
-      # UPLOAD FILES
+      # UPLOAD PIPELINE FILES
       # ======================================================
 
       - name: Upload pipeline files
@@ -120,3 +223,13 @@ jobs:
             cleaned_files/
           retention-days: 7
           if-no-files-found: ignore
+
+      # ======================================================
+      # CLEANUP CREDENTIALS
+      # ======================================================
+
+      - name: Remove credentials
+        if: always()
+        run: |
+          rm -f credentials.json
+          echo "credentials.json removed."
