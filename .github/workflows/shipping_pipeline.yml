@@ -82,7 +82,7 @@ jobs:
           python -m pip install --no-cache-dir --force-reinstall psycopg2-binary
 
       # ======================================================
-      # VERIFY DEPENDENCIES
+      # VERIFY PYTHON DEPENDENCIES
       # ======================================================
 
       - name: Verify Python dependencies
@@ -179,7 +179,94 @@ jobs:
           PY
 
       # ======================================================
-      # VERIFY PROJECT IMPORTS
+      # VERIFY DATABASE CONFIGURATION
+      # ======================================================
+
+      - name: Verify database configuration
+        env:
+          DB_URL_Shipping: ${{ secrets.DB_URL_Shipping }}
+          DB_URL_Orders: ${{ secrets.DB_URL_Orders }}
+        run: |
+          python - <<'PY'
+          import os
+
+          print("========================================")
+          print("DATABASE CONFIGURATION CHECK")
+          print("========================================")
+
+          for name in ["DB_URL_Shipping", "DB_URL_Orders"]:
+              value = os.getenv(name)
+
+              if not value:
+                  print(f"{name}: NOT SET")
+                  raise SystemExit(
+                      f"ERROR: GitHub Secret {name} is missing."
+                  )
+
+              value = value.strip()
+
+              print(f"{name}: SET")
+              print(f"{name} length: {len(value)}")
+
+              if value.startswith(("postgresql://", "postgres://")):
+                  print(f"{name}: PostgreSQL URL format detected")
+
+              elif "=" in value:
+                  print(f"{name}: PostgreSQL keyword/value format detected")
+
+              else:
+                  print(
+                      f"ERROR: {name} does not look like a valid "
+                      "PostgreSQL connection string."
+                  )
+
+                  raise SystemExit(1)
+
+          print("========================================")
+          print("Database configuration check passed")
+          print("========================================")
+          PY
+
+      # ======================================================
+      # TEST DATABASE CONNECTION
+      # ======================================================
+
+      - name: Test Shipping database connection
+        env:
+          DB_URL_Shipping: ${{ secrets.DB_URL_Shipping }}
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg2
+
+          db_url = os.getenv("DB_URL_Shipping", "").strip()
+
+          if not db_url:
+              raise RuntimeError("DB_URL_Shipping is empty.")
+
+          print("Testing Shipping PostgreSQL connection...")
+
+          try:
+              with psycopg2.connect(
+                  db_url,
+                  connect_timeout=15
+              ) as conn:
+                  with conn.cursor() as cursor:
+                      cursor.execute("SELECT 1")
+                      result = cursor.fetchone()
+
+                  print("Shipping database connection: OK")
+                  print("Test query result:", result)
+
+          except Exception as e:
+              print("ERROR: Shipping database connection failed.")
+              print("Error type:", type(e).__name__)
+              print("Error:", str(e))
+              raise
+          PY
+
+      # ======================================================
+      # VERIFY SHIPPING PROJECT IMPORTS
       # ======================================================
 
       - name: Verify Shipping imports
@@ -191,7 +278,7 @@ jobs:
           python - <<'PY'
           from pipeline.Shipping.DBManage import execute_values
           from pipeline.Shipping.CLShipping import *
-          
+
           print("========================================")
           print("Shipping project imports: OK")
           print("========================================")
