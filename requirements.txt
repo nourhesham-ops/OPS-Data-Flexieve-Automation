@@ -1,0 +1,11 @@
+pandas>=2.2,<3
+python-dotenv>=1.0,<2
+
+google-auth>=2.30,<3
+google-api-python-client>=2.140,<3
+gspread>=6.1,<7
+
+openpyxl>=3.1,<4
+xlrd>=2.0,<3
+
+supabase>=2.5,<3
