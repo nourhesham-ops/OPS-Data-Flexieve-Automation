@@ -10,9 +10,11 @@ on:
 
   # تشغيل تلقائي يومياً
   schedule:
-    # 06:00 UTC
-    # = 09:00 Cairo عندما يكون UTC+3
-    - cron: "0 6 * * *"
+    # 11:00 Cairo = 08:00 UTC
+    - cron: "0 8 * * *"
+
+    # 12:00 Cairo = 09:00 UTC
+    - cron: "0 9 * * *"
 
 # ============================================================
 # CONCURRENCY
@@ -161,7 +163,8 @@ jobs:
           ]
 
           missing = [
-              key for key in required
+              key
+              for key in required
               if not data.get(key)
           ]
 
